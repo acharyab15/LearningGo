@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -16,9 +17,9 @@ import (
 )
 
 type Block struct {
-	Index     int // position of data record in blockchain
+	Index     int    // position of data record in blockchain
 	Timestamp string // the time the data is written
-	BPM       int // beats per minute (pulse rate)
+	BPM       int    // beats per minute (pulse rate)
 	Hash      string // SHA256 identifier representing this data record
 	PrevHash  string // SHA256 identifier of previous record
 }
@@ -51,13 +52,17 @@ func generateBlock(oldBlock Block, BPM int) (Block, error) {
 
 func isBlockValid(oldBlock Block, newBlock Block) bool {
 	if newBlock.PrevHash != oldBlock.Hash {
+		fmt.Printf("%+v, %+v ", newBlock.PrevHash, oldBlock.Hash)
+		fmt.Printf("hash not equal")
 		return false
 	}
-	if newBlock.Index != oldBlock.Index + 1 {
+	if newBlock.Index != oldBlock.Index+1 {
+		fmt.Printf("index not equal")
 		return false
 	}
 
 	if calculateHash(newBlock) != newBlock.Hash {
+		fmt.Printf("Calculate hash not equal")
 		return false
 	}
 
@@ -75,11 +80,11 @@ func run() error {
 	httpAddr := os.Getenv("ADDR")
 	log.Println("Listening on ", os.Getenv("ADDR"))
 	s := &http.Server{
-		Addr: 		":" + httpAddr,
-		Handler:	mux,
-		ReadTimeout: 	10 * time.Second,
-		WriteTimeout:	10 * time.Second,
-		MaxHeaderBytes:	1 << 20,
+		Addr:           ":" + httpAddr,
+		Handler:        mux,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	if err := s.ListenAndServe(); err != nil {
@@ -100,7 +105,7 @@ func handleGetBlockchain(w http.ResponseWriter, r *http.Request) {
 	bytes, err := json.MarshalIndent(Blockchain, "", " ")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return 
+		return
 	}
 	io.WriteString(w, string(bytes))
 }
@@ -115,20 +120,27 @@ func handleWriteBlock(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&m); err != nil {
 		respondWithJSON(w, r, http.StatusBadRequest, r.Body)
-		return 
+		fmt.Printf("Error while decoding ", err)
+		return
 	}
+
 	defer r.Body.Close()
 
 	newBlock, err := generateBlock(Blockchain[len(Blockchain)-1], m.BPM)
+
 	if err != nil {
+		fmt.Printf("Error generating block ", err)
 		respondWithJSON(w, r, http.StatusInternalServerError, m)
-		return 
+		return
 	}
 
-	if isBlockValid(newBlock, Blockchain[len(Blockchain)-1]) {
+	if isBlockValid(Blockchain[len(Blockchain)-1], newBlock) {
+		fmt.Printf("Block is valid")
 		newBlockchain := append(Blockchain, newBlock)
 		replaceChain(newBlockchain)
 		spew.Dump(Blockchain)
+	} else {
+		fmt.Printf("Block isn't valid")
 	}
 
 	respondWithJSON(w, r, http.StatusCreated, newBlock)
@@ -145,7 +157,6 @@ func respondWithJSON(w http.ResponseWriter, r *http.Request, code int, payload i
 	w.WriteHeader(code)
 	w.Write(response)
 }
-
 
 func main() {
 	// read variables like port number from .env file
